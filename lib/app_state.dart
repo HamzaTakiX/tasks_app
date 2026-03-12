@@ -110,6 +110,21 @@ class AppState extends ChangeNotifier {
           iOS: iosSettings,
         );
         await notificationsPlugin.initialize(initSettings);
+
+        // Required for Android 13+ to show notifications
+        if (defaultTargetPlatform == TargetPlatform.android) {
+          await notificationsPlugin
+              .resolvePlatformSpecificImplementation<
+                AndroidFlutterLocalNotificationsPlugin
+              >()
+              ?.requestNotificationsPermission();
+
+          await notificationsPlugin
+              .resolvePlatformSpecificImplementation<
+                AndroidFlutterLocalNotificationsPlugin
+              >()
+              ?.requestExactAlarmsPermission();
+        }
       } catch (e) {
         debugPrint('Error init notifications: $e');
       }
