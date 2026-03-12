@@ -287,18 +287,34 @@ class AppState extends ChangeNotifier {
 
       await notificationsPlugin.zonedSchedule(
         notifId,
-        'Task Reminder: ${task.title}',
+        '⏰ Task Alarm: ${task.title}',
         task.note.isNotEmpty ? task.note : 'It is time for your task!',
         tz.TZDateTime.from(scheduleTime, tz.local),
-        const NotificationDetails(
+        NotificationDetails(
           android: AndroidNotificationDetails(
-            'tasks_channel',
-            'Task Reminders',
-            channelDescription: 'Reminders for your scheduled tasks',
+            'tasks_alarm_channel',
+            'Task Alarms',
+            channelDescription: 'Persistent alarms for your scheduled tasks',
             importance: Importance.max,
             priority: Priority.high,
+            fullScreenIntent: true,
+            audioAttributesUsage: AudioAttributesUsage.alarm,
+            category: AndroidNotificationCategory.alarm,
+            playSound: true,
+            enableVibration: true,
+            additionalFlags: Int32List.fromList([4]), // FLAG_INSISTENT
+            styleInformation: BigTextStyleInformation(
+              task.note.isNotEmpty ? task.note : 'It is time for your task!',
+              contentTitle: '⏰ Task Alarm: ${task.title}',
+              summaryText: 'Task Reminder',
+            ),
           ),
-          iOS: DarwinNotificationDetails(),
+          iOS: const DarwinNotificationDetails(
+            presentAlert: true,
+            presentBadge: true,
+            presentSound: true,
+            interruptionLevel: InterruptionLevel.critical,
+          ),
         ),
         androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
         uiLocalNotificationDateInterpretation:
