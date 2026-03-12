@@ -2,6 +2,7 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter/foundation.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:alarm/alarm.dart';
 import 'package:timezone/timezone.dart' as tz;
 import 'models/task_model.dart';
 import 'models/habit_model.dart';
@@ -267,14 +268,14 @@ class AppState extends ChangeNotifier {
     if (kIsWeb) return;
 
     try {
-      // Cancel any existing notification for this task
       final int notifId = task.id.hashCode;
       await notificationsPlugin.cancel(notifId);
+      // Also stop any existing alarm for this task
+      await Alarm.stop(notifId);
 
       if (task.status == 'completed' || task.status == 'cancelled') return;
       if (task.time == null) return;
 
-      // Combine task.date and task.time
       final scheduleTime = DateTime(
         task.date.year,
         task.date.month,
@@ -285,6 +286,23 @@ class AppState extends ChangeNotifier {
 
       if (scheduleTime.isBefore(DateTime.now())) return;
 
+      // 1. Schedule the System Alarm (Rings even if app is closed)
+      final alarmSettings = AlarmSettings(
+        id: notifId,
+        dateTime: scheduleTime,
+        assetAudioPath: 'assets/alarm.mp3',
+        loopAudio: true,
+        vibrate: true,
+        notificationSettings: NotificationSettings(
+          title: '⏰ Task Alarm: ${task.title}',
+          body: task.note.isNotEmpty ? task.note : 'It is time for your task!',
+          stopButton: 'Stop',
+        ),
+        volumeSettings: VolumeSettings.fixed(volume: 0.8),
+      );
+      await Alarm.set(alarmSettings: alarmSettings);
+
+      // 2. Schedule Local Notification (for visibility and heads-up)
       await notificationsPlugin.zonedSchedule(
         notifId,
         '⏰ Task Alarm: ${task.title}',
@@ -321,7 +339,7 @@ class AppState extends ChangeNotifier {
             UILocalNotificationDateInterpretation.absoluteTime,
       );
     } catch (e) {
-      debugPrint('Error scheduling notification: $e');
+      debugPrint('Error scheduling alarm/notification: $e');
     }
   }
 

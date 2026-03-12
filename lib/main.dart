@@ -3,6 +3,7 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 
+import 'package:alarm/alarm.dart';
 import 'package:timezone/data/latest.dart' as tz;
 
 import 'app_state.dart';
@@ -11,6 +12,7 @@ import 'screens/home_screen.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   tz.initializeTimeZones();
+  await Alarm.init();
 
   final appState = AppState();
   await appState.initHive(); // Ensure offline storage is ready before UI loads
