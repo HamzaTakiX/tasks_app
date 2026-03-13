@@ -132,14 +132,7 @@ class _WeekCalendarState extends State<WeekCalendar> {
                   // Task indicator dots
                   Builder(
                     builder: (context) {
-                      final dayTasks = appState.taskBox.values
-                          .where(
-                            (t) =>
-                                t.date.year == date.year &&
-                                t.date.month == date.month &&
-                                t.date.day == date.day,
-                          )
-                          .toList();
+                      final dayTasks = appState.tasksForDate(date);
 
                       if (dayTasks.isEmpty) {
                         return const SizedBox(height: 8); // Maintain spacing

@@ -902,10 +902,10 @@ class _TaskLinkPickerState extends State<_TaskLinkPicker> {
   Widget build(BuildContext context) {
     final appState = context.watch<AppState>();
 
-    // Find tasks for this day
-    final dayTasks = appState.taskBox.values.where((t) {
-      return DateFormat('yyyy-MM-dd').format(t.date) == widget.dateKey;
-    }).toList();
+    // Find tasks for this day. Since we have a dateKey, we parse it back to a DateTime
+    // to use the robust tasksForDate logic.
+    final targetDate = DateFormat('yyyy-MM-dd').parse(widget.dateKey);
+    final dayTasks = appState.tasksForDate(targetDate);
 
     return Container(
       height: MediaQuery.of(context).size.height * 0.6,

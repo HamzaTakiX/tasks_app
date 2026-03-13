@@ -49,35 +49,7 @@ class _TaskBoardViewState extends State<TaskBoardView> {
   ];
   final List<String> _priorityOptions = ['All', 'Low', 'Normal', 'High'];
 
-  bool _isSameDay(DateTime a, DateTime b) =>
-      a.year == b.year && a.month == b.month && a.day == b.day;
 
-  bool _isThisWeek(DateTime date) {
-    var now = DateTime.now();
-    // Monday as start of the week
-    var startOfWeek = now.subtract(Duration(days: now.weekday - 1));
-    var endOfWeek = startOfWeek.add(const Duration(days: 6));
-    startOfWeek = DateTime(
-      startOfWeek.year,
-      startOfWeek.month,
-      startOfWeek.day,
-    );
-    endOfWeek = DateTime(
-      endOfWeek.year,
-      endOfWeek.month,
-      endOfWeek.day,
-      23,
-      59,
-      59,
-    );
-    return date.isAfter(startOfWeek.subtract(const Duration(seconds: 1))) &&
-        date.isBefore(endOfWeek.add(const Duration(seconds: 1)));
-  }
-
-  bool _isThisMonth(DateTime date) {
-    var now = DateTime.now();
-    return date.year == now.year && date.month == now.month;
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -91,7 +63,36 @@ class _TaskBoardViewState extends State<TaskBoardView> {
     final List<String> categoryOptions = ['All', ...categories];
 
     // Filter tasks
-    final allTasks = appState.taskBox.values.where((t) {
+    final List<TaskModel> allTasks = [];
+    
+    // For Board view, depending on the _dateFilter, we fetch tasks differently
+    // If 'Today' or 'This Week' or 'This Month', we iterate through those days to get recurring tasks.
+    // If 'All Time', it's harder, but usually we just want raw tasks for 'All Time'.
+    if (_dateFilter == 'Today') {
+       allTasks.addAll(appState.tasksForDate(DateTime.now()));
+    } else if (_dateFilter == 'This Week') {
+       var now = DateTime.now();
+       var startOfWeek = now.subtract(Duration(days: now.weekday - 1));
+       for(int d=0; d<7; d++) {
+          allTasks.addAll(appState.tasksForDate(startOfWeek.add(Duration(days: d))));
+       }
+    } else if (_dateFilter == 'This Month') {
+       var now = DateTime.now();
+       int daysInMonth = DateUtils.getDaysInMonth(now.year, now.month);
+       for(int d=1; d<=daysInMonth; d++) {
+          allTasks.addAll(appState.tasksForDate(DateTime(now.year, now.month, d)));
+       }
+    } else {
+       allTasks.addAll(appState.taskBox.values); // raw list for 'All Time'
+    }
+    
+    // Deduplicate (since a recurring task might match multiple days in a week/month)
+    final uniqueTasks = <String, TaskModel>{};
+    for(var t in allTasks) {
+       uniqueTasks[t.id] = t;
+    }
+
+    final finalTasks = uniqueTasks.values.where((t) {
       // 1. Search filter
       if (_searchQuery.isNotEmpty) {
         final query = _searchQuery.toLowerCase();
@@ -99,18 +100,6 @@ class _TaskBoardViewState extends State<TaskBoardView> {
             !t.note.toLowerCase().contains(query)) {
           return false;
         }
-      }
-
-      // 2. Date filter
-      final d = t.date;
-      if (_dateFilter == 'Today' && !_isSameDay(d, DateTime.now())) {
-        return false;
-      }
-      if (_dateFilter == 'This Week' && !_isThisWeek(d)) {
-        return false;
-      }
-      if (_dateFilter == 'This Month' && !_isThisMonth(d)) {
-        return false;
       }
 
       // 3. Priority filter
@@ -183,7 +172,7 @@ class _TaskBoardViewState extends State<TaskBoardView> {
             separatorBuilder: (context, _) => const SizedBox(width: 12),
             itemBuilder: (context, colIndex) {
               final col = _columns[colIndex];
-              final colTasks = allTasks.where((t) {
+              final colTasks = finalTasks.where((t) {
                 final s = t.status.isEmpty ? 'in_progress' : t.status;
                 return s == col.id;
               }).toList();

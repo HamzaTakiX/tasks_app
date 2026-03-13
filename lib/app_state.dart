@@ -194,17 +194,14 @@ class AppState extends ChangeNotifier {
   (int, int) weekProgress() {
     final now = DateTime.now();
     final monday = now.subtract(Duration(days: now.weekday - 1));
-    final sunday = monday.add(const Duration(days: 6));
-    final weekTasks = taskBox.values.where((t) {
-      return !t.date.isBefore(
-            DateTime(monday.year, monday.month, monday.day),
-          ) &&
-          !t.date.isAfter(
-            DateTime(sunday.year, sunday.month, sunday.day, 23, 59),
-          );
-    }).toList();
-    final done = weekTasks.where((t) => t.status == 'completed').length;
-    return (done, weekTasks.length);
+    int total = 0;
+    int done = 0;
+    for(int i=0; i<7; i++) {
+       final dayTasks = tasksForDate(monday.add(Duration(days: i)));
+       total += dayTasks.length;
+       done += dayTasks.where((t) => t.status == 'completed').length;
+    }
+    return (done, total);
   }
 
   // --- Date & Filtering Logic ---
@@ -221,11 +218,7 @@ class AppState extends ChangeNotifier {
 
   // Get tasks for the highly currently selected date and filter
   List<TaskModel> get filteredTasks {
-    final tasksForDay = taskBox.values.where((task) {
-      return task.date.year == selectedDate.year &&
-          task.date.month == selectedDate.month &&
-          task.date.day == selectedDate.day;
-    }).toList();
+    final tasksForDay = tasksForDate(selectedDate);
 
     if (selectedFilter == 'All') {
       return tasksForDay;

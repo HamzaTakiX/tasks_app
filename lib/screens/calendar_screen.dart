@@ -319,15 +319,7 @@ class _DayView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final tasks =
-        appState.taskBox.values
-            .where(
-              (t) =>
-                  t.date.year == date.year &&
-                  t.date.month == date.month &&
-                  t.date.day == date.day,
-            )
-            .toList()
+    final tasks = appState.tasksForDate(date)
           ..sort((a, b) {
             if (a.time == null && b.time == null) return 0;
             if (a.time == null) return 1;
@@ -572,14 +564,7 @@ class _WeekView extends StatelessWidget {
               day.month == today.month &&
               day.day == today.day;
 
-          final dayTasks = appState.taskBox.values
-              .where(
-                (t) =>
-                    t.date.year == day.year &&
-                    t.date.month == day.month &&
-                    t.date.day == day.day,
-              )
-              .toList();
+          final dayTasks = appState.tasksForDate(day);
 
           final totalCount = dayTasks.length;
           final doneCount = dayTasks
@@ -931,14 +916,7 @@ class _MonthTaskList extends StatelessWidget {
     final List<MapEntry<DateTime, List<TaskModel>>> dayGroups = [];
     for (var d = 1; d <= daysInMonth; d++) {
       final date = DateTime(focusDate.year, focusDate.month, d);
-      final tasks = appState.taskBox.values
-          .where(
-            (t) =>
-                t.date.year == date.year &&
-                t.date.month == date.month &&
-                t.date.day == date.day,
-          )
-          .toList();
+      final tasks = appState.tasksForDate(date);
       if (tasks.isNotEmpty) dayGroups.add(MapEntry(date, tasks));
     }
 
@@ -1052,13 +1030,16 @@ class _YearView extends StatelessWidget {
         final isCurrentMonth =
             today.year == monthDate.year && today.month == monthDate.month;
         final daysInMonth = DateUtils.getDaysInMonth(focusDate.year, i + 1);
-        final monthTasks = appState.taskBox.values
-            .where(
-              (t) => t.date.year == focusDate.year && t.date.month == i + 1,
-            )
-            .toList();
-        final done = monthTasks.where((t) => t.status == 'completed').length;
-        final total = monthTasks.length;
+        // A bit trickier for year view to get all recurrences. Let's just do a rough filter or use the original.
+        // Since the year view just shows raw counts, keeping the original is technically safer, but to show recurrences we need to iterate days.
+        // Let's iterate days of the month to get an accurate count including recurring tasks.
+        int done = 0;
+        int total = 0;
+        for(int d=1; d<=daysInMonth; d++) {
+           final dailyTasks = appState.tasksForDate(DateTime(focusDate.year, i + 1, d));
+           total += dailyTasks.length;
+           done += dailyTasks.where((t) => t.status == 'completed').length;
+        }
         final ratio = total == 0 ? 0.0 : done / total;
 
         return GestureDetector(

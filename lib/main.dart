@@ -14,6 +14,12 @@ void main() async {
   tz.initializeTimeZones();
   await Alarm.init();
 
+  // If the user kills the app on iOS, ring a warning!
+  await Alarm.setWarningNotificationOnKill(
+    'Alarms Disabled',
+    'You killed the Tasks App. Your audio alarms will not ring. You will only receive standard notifications instead.',
+  );
+
   final appState = AppState();
   await appState.initHive(); // Ensure offline storage is ready before UI loads
 
