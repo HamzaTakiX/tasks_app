@@ -1,4 +1,6 @@
+import 'dart:convert';
 import 'package:flutter/cupertino.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
@@ -145,14 +147,38 @@ class AppState extends ChangeNotifier {
 
   // Tasks for a specific date
   List<TaskModel> tasksForDate(DateTime date) {
-    return taskBox.values
-        .where(
-          (t) =>
-              t.date.year == date.year &&
-              t.date.month == date.month &&
-              t.date.day == date.day,
-        )
-        .toList();
+    return taskBox.values.where((t) {
+      // 1. Exact match
+      if (t.date.year == date.year &&
+          t.date.month == date.month &&
+          t.date.day == date.day) {
+        return true;
+      }
+
+      // 2. Recurring match
+      final tDateOnly = DateTime(t.date.year, t.date.month, t.date.day);
+      final checkDateOnly = DateTime(date.year, date.month, date.day);
+      if (checkDateOnly.isBefore(tDateOnly)) return false;
+
+      if (t.repetition == 'Daily') return true;
+      if (t.repetition == 'Weekdays' && date.weekday >= 1 && date.weekday <= 5) return true;
+      if (t.repetition == 'Weekly' && date.weekday == t.date.weekday) return true;
+
+      // Custom
+      if (t.repeatDaysJson != null) {
+        if (t.repeatDaysJson == 'every_other_day') {
+          final diff = checkDateOnly.difference(tDateOnly).inDays;
+          if (diff % 2 == 0) return true;
+        } else {
+          try {
+            final List<dynamic> daysList = jsonDecode(t.repeatDaysJson!);
+            if (daysList.contains(date.weekday)) return true;
+          } catch (_) {}
+        }
+      }
+
+      return false;
+    }).toList();
   }
 
   // Day progress for a category: [completed, total]
@@ -219,6 +245,9 @@ class AppState extends ChangeNotifier {
     String note = '',
     String repetition = 'None',
     String subType = '',
+    String? repeatDaysJson,
+    String? taskTimesJson,
+    int? reminderOffset,
   }) async {
     final newTask = TaskModel(
       id: DateTime.now().millisecondsSinceEpoch.toString(),
@@ -231,6 +260,9 @@ class AppState extends ChangeNotifier {
       note: note,
       repetition: repetition,
       subType: subType,
+      repeatDaysJson: repeatDaysJson,
+      taskTimesJson: taskTimesJson,
+      reminderOffset: reminderOffset,
     );
     await taskBox.put(newTask.id, newTask);
     await _scheduleNotification(newTask);
@@ -248,6 +280,9 @@ class AppState extends ChangeNotifier {
     String note = '',
     String repetition = 'None',
     String subType = '',
+    String? repeatDaysJson,
+    String? taskTimesJson,
+    int? reminderOffset,
   }) async {
     existingTask.title = title;
     existingTask.type = type;
@@ -258,6 +293,9 @@ class AppState extends ChangeNotifier {
     existingTask.note = note;
     existingTask.repetition = repetition;
     existingTask.subType = subType;
+    existingTask.repeatDaysJson = repeatDaysJson;
+    existingTask.taskTimesJson = taskTimesJson;
+    existingTask.reminderOffset = reminderOffset;
 
     await existingTask.save();
     await _scheduleNotification(existingTask);
@@ -268,80 +306,141 @@ class AppState extends ChangeNotifier {
     if (kIsWeb) return;
 
     try {
-      final int notifId = task.id.hashCode;
-      await notificationsPlugin.cancel(notifId);
-      // Also stop any existing alarm for this task
-      await Alarm.stop(notifId);
+      final baseIdStr = task.id;
+      
+      // Cancel previous variations (up to 5 times per day max)
+      for (int i = 0; i < 5; i++) {
+        await Alarm.stop("${baseIdStr}_$i".hashCode.abs() % 2147483647);
+        await notificationsPlugin.cancel("${baseIdStr}_${i}_pre".hashCode.abs() % 2147483647);
+        for (int j = 0; j < 10; j++) {
+           await notificationsPlugin.cancel("${baseIdStr}_${i}_post_$j".hashCode.abs() % 2147483647);
+        }
+      }
+      // Also cancel any old single ones
+      await notificationsPlugin.cancel(task.id.hashCode.abs() % 2147483647);
+      await Alarm.stop(task.id.hashCode.abs() % 2147483647);
 
       if (task.status == 'completed' || task.status == 'cancelled') return;
-      if (task.time == null) return;
 
-      final scheduleTime = DateTime(
-        task.date.year,
-        task.date.month,
-        task.date.day,
-        task.time!.hour,
-        task.time!.minute,
-      );
+      // Extract times
+      List<TimeOfDay> timesToSchedule = [];
+      if (task.taskTimesJson != null && task.taskTimesJson!.isNotEmpty) {
+        try {
+          final List<dynamic> timesList = jsonDecode(task.taskTimesJson!);
+          for (var t in timesList) {
+            final parts = t.toString().split(':');
+            timesToSchedule.add(TimeOfDay(hour: int.parse(parts[0]), minute: int.parse(parts[1])));
+          }
+        } catch (_) {}
+      } else if (task.time != null) {
+        timesToSchedule.add(TimeOfDay(hour: task.time!.hour, minute: task.time!.minute));
+      }
 
-      if (scheduleTime.isBefore(DateTime.now())) return;
+      if (timesToSchedule.isEmpty) return;
 
-      // 1. Schedule the System Alarm (Rings even if app is closed)
-      final alarmSettings = AlarmSettings(
-        id: notifId,
-        dateTime: scheduleTime,
-        assetAudioPath: 'assets/alarm.mp3',
-        loopAudio: true,
-        vibrate: true,
-        notificationSettings: NotificationSettings(
-          title: '⏰ Task Alarm: ${task.title}',
-          body: task.note.isNotEmpty ? task.note : 'It is time for your task!',
-          stopButton: 'Stop',
-        ),
-        volumeSettings: VolumeSettings.fixed(volume: 0.8),
-      );
-      await Alarm.set(alarmSettings: alarmSettings);
+      DateTime now = DateTime.now();
 
-      // 2. Schedule Local Notification (for visibility and heads-up)
-      await notificationsPlugin.zonedSchedule(
-        notifId,
-        '⏰ Task Alarm: ${task.title}',
-        task.note.isNotEmpty ? task.note : 'It is time for your task!',
-        tz.TZDateTime.from(scheduleTime, tz.local),
-        NotificationDetails(
-          android: AndroidNotificationDetails(
-            'tasks_alarm_channel',
-            'Task Alarms',
-            channelDescription: 'Persistent alarms for your scheduled tasks',
-            importance: Importance.max,
-            priority: Priority.high,
-            fullScreenIntent: true,
-            audioAttributesUsage: AudioAttributesUsage.alarm,
-            category: AndroidNotificationCategory.alarm,
-            playSound: true,
-            enableVibration: true,
-            additionalFlags: Int32List.fromList([4]), // FLAG_INSISTENT
-            styleInformation: BigTextStyleInformation(
-              task.note.isNotEmpty ? task.note : 'It is time for your task!',
-              contentTitle: '⏰ Task Alarm: ${task.title}',
-              summaryText: 'Task Reminder',
+      for (int i = 0; i < timesToSchedule.length; i++) {
+         final tod = timesToSchedule[i];
+         
+         DateTime? nextSchedule;
+         // Search next 14 days for the upcoming occurrence
+         for (int d = 0; d < 14; d++) {
+            final checkDate = DateTime(now.year, now.month, now.day).add(Duration(days: d));
+            final tDateOnly = DateTime(task.date.year, task.date.month, task.date.day);
+            if (checkDate.isBefore(tDateOnly)) continue;
+            
+            bool matches = false;
+            if (task.repetition == 'Daily') {
+                matches = true;
+            } else if (task.repetition == 'Weekdays' && checkDate.weekday >= 1 && checkDate.weekday <= 5) {
+                matches = true;
+            } else if (task.repetition == 'Weekly' && checkDate.weekday == task.date.weekday) {
+                matches = true;
+            } else if (task.repeatDaysJson == 'every_other_day') {
+                if (checkDate.difference(tDateOnly).inDays % 2 == 0) matches = true;
+            } else if (task.repeatDaysJson != null && task.repeatDaysJson != 'every_other_day') {
+               try {
+                  final List<dynamic> daysList = jsonDecode(task.repeatDaysJson!);
+                  if (daysList.contains(checkDate.weekday)) matches = true;
+               } catch (_) {}
+            } else if (checkDate.year == task.date.year && checkDate.month == task.date.month && checkDate.day == task.date.day) {
+               matches = true;
+            }
+
+            if (matches) {
+               final potentialSchedule = DateTime(checkDate.year, checkDate.month, checkDate.day, tod.hour, tod.minute);
+               if (potentialSchedule.isAfter(now)) {
+                  nextSchedule = potentialSchedule;
+                  break;
+               }
+            }
+         }
+
+         if (nextSchedule == null) continue;
+
+         final baseAlarmId = "${baseIdStr}_$i".hashCode.abs() % 2147483647;
+         final preNotifId = "${baseIdStr}_${i}_pre".hashCode.abs() % 2147483647;
+
+         // 1. Persistent main alarm
+         final alarmSettings = AlarmSettings(
+            id: baseAlarmId,
+            dateTime: nextSchedule,
+            assetAudioPath: 'assets/alarm.mp3',
+            loopAudio: true,
+            vibrate: true,
+            notificationSettings: NotificationSettings(
+              title: '⏰ Task Alarm: ${task.title}',
+              body: task.note.isNotEmpty ? task.note : 'It is time for your task!',
+              stopButton: 'Stop',
             ),
-          ),
-          iOS: const DarwinNotificationDetails(
-            presentAlert: true,
-            presentBadge: true,
-            presentSound: true,
-            interruptionLevel: InterruptionLevel.critical,
-          ),
-        ),
-        androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
-        uiLocalNotificationDateInterpretation:
-            UILocalNotificationDateInterpretation.absoluteTime,
-      );
+            volumeSettings: VolumeSettings.fixed(volume: 0.8),
+         );
+         await Alarm.set(alarmSettings: alarmSettings);
+
+         // 2. Early notification 
+         final offset = task.reminderOffset ?? 5;
+         if (offset > 0) {
+            final preTime = nextSchedule.subtract(Duration(minutes: offset));
+            if (preTime.isAfter(now)) {
+               await notificationsPlugin.zonedSchedule(
+                  preNotifId,
+                  '⏰ Upcoming Task: ${task.title}',
+                  'Starts in $offset minutes. ${task.note}',
+                  tz.TZDateTime.from(preTime, tz.local),
+                  const NotificationDetails(
+                     android: AndroidNotificationDetails('tasks_alarm_channel_pre', 'Task Early Reminders', channelDescription: 'Pre-alarms', importance: Importance.high, priority: Priority.high, enableVibration: true, playSound: true),
+                     iOS: DarwinNotificationDetails(presentAlert: true, presentSound: true, presentBadge: true),
+                  ),
+                  androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+                  uiLocalNotificationDateInterpretation: UILocalNotificationDateInterpretation.absoluteTime,
+               );
+            }
+         }
+
+         // 3. Ten post notifications spanning 1 to 10 mins
+         for (int j = 0; j < 10; j++) {
+            final postTime = nextSchedule.add(Duration(minutes: j + 1));
+            final postNotifId = "${baseIdStr}_${i}_post_$j".hashCode.abs() % 2147483647;
+            await notificationsPlugin.zonedSchedule(
+               postNotifId,
+               '⏰ Missed Task?: ${task.title}',
+               'Task started at ${tod.hour.toString().padLeft(2,'0')}:${tod.minute.toString().padLeft(2,'0')}. Please check your list!',
+               tz.TZDateTime.from(postTime, tz.local),
+               const NotificationDetails(
+                  android: AndroidNotificationDetails('tasks_alarm_channel_post', 'Task Late Reminders', channelDescription: 'Reminders for missed tasks', importance: Importance.max, priority: Priority.high, enableVibration: true, playSound: true),
+                  iOS: DarwinNotificationDetails(presentAlert: true, presentSound: true, presentBadge: true),
+               ),
+               androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+               uiLocalNotificationDateInterpretation: UILocalNotificationDateInterpretation.absoluteTime,
+            );
+         }
+      }
     } catch (e) {
       debugPrint('Error scheduling alarm/notification: $e');
     }
   }
+
 
   Future<void> toggleTaskCompleted(TaskModel task) async {
     task.isCompleted = !task.isCompleted;

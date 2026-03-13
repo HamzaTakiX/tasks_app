@@ -46,6 +46,20 @@ class TaskModel extends HiveObject {
   @HiveField(12)
   String sessionsJson;
 
+  /// JSON list of integers for custom repeat days, or a custom string code
+  /// e.g. "[1,3,5]" for Mon/Wed/Fri, or "every_other_day"
+  @HiveField(13)
+  String? repeatDaysJson;
+
+  /// JSON list of time strings
+  /// e.g. ["08:00", "15:30"]
+  @HiveField(14)
+  String? taskTimesJson;
+
+  /// Remind X minutes before task
+  @HiveField(15)
+  int? reminderOffset;
+
   TaskModel({
     required this.id,
     required this.title,
@@ -60,5 +74,8 @@ class TaskModel extends HiveObject {
     this.subType = '',
     this.status = 'in_progress',
     this.sessionsJson = '[]',
+    this.repeatDaysJson,
+    this.taskTimesJson,
+    this.reminderOffset = 5,
   });
 }

@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -29,13 +30,15 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
   // Advanced fields
   String _selectedType = 'Work';
   DateTime _selectedDate = DateTime.now();
-  DateTime? _selectedTime;
+  List<TimeOfDay> _selectedTimes = [];
+  int _reminderOffset = 5;
   String _priority = 'Normal';
   String _repetition = 'None';
+  List<int> _customDays = []; // 1=Mon, ..., 7=Sun
   int? _selectedIconCode;
   String _subType = ''; // e.g. "Hair Care" inside "Health"
 
-  // Dynamic categories loaded from Hive — see build() where we use context.read<AppState>()
+  // Dynamic categories loaded from Hive
   final List<int> _iconOptions = [
     CupertinoIcons.heart_fill.codePoint,
     CupertinoIcons.briefcase_fill.codePoint,
@@ -56,11 +59,35 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
       _noteController.text = task.note;
       _selectedType = task.type;
       _selectedDate = task.date;
-      _selectedTime = task.time;
       _priority = task.priority;
-      _repetition = task.repetition;
       _selectedIconCode = task.iconCodePoint;
       _subType = task.subType;
+      
+      _reminderOffset = task.reminderOffset ?? 5;
+      
+      if (task.taskTimesJson != null && task.taskTimesJson!.isNotEmpty) {
+        try {
+          final List<dynamic> timesList = jsonDecode(task.taskTimesJson!);
+          _selectedTimes = timesList.map((t) {
+            final parts = t.toString().split(':');
+            return TimeOfDay(hour: int.parse(parts[0]), minute: int.parse(parts[1]));
+          }).toList();
+        } catch (_) {}
+      } else if (task.time != null) {
+        _selectedTimes.add(TimeOfDay(hour: task.time!.hour, minute: task.time!.minute));
+      }
+
+      if (task.repeatDaysJson == 'every_other_day') {
+        _repetition = 'Nhar Ah Nhar La';
+      } else if (task.repeatDaysJson != null && task.repeatDaysJson!.isNotEmpty) {
+        try {
+          final List<dynamic> daysList = jsonDecode(task.repeatDaysJson!);
+          _customDays = daysList.cast<int>();
+          _repetition = 'Custom Days';
+        } catch (_) {}
+      } else {
+        _repetition = task.repetition;
+      }
     } else {
       _subType = widget.initialSubType ?? '';
       if (widget.initialCategory != null) {
@@ -80,8 +107,33 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
   void _saveTask() {
     if (_titleController.text.trim().isEmpty) return;
     final appState = context.read<AppState>();
-    // _selectedType is already the exact category title from Hive
     final finalType = _selectedType.isEmpty ? 'General' : _selectedType;
+
+    String? timesJson;
+    if (_selectedTimes.isNotEmpty) {
+      timesJson = jsonEncode(_selectedTimes.map((t) => '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}').toList());
+    }
+
+    String? daysJson;
+    String repToSave = _repetition;
+    if (_repetition == 'Nhar Ah Nhar La') {
+      daysJson = 'every_other_day';
+      repToSave = 'Custom';
+    } else if (_repetition == 'Custom Days') {
+      daysJson = jsonEncode(_customDays);
+      repToSave = 'Custom';
+    }
+
+    DateTime? firstTime;
+    if (_selectedTimes.isNotEmpty) {
+      firstTime = DateTime(
+        _selectedDate.year,
+        _selectedDate.month,
+        _selectedDate.day,
+        _selectedTimes.first.hour,
+        _selectedTimes.first.minute,
+      );
+    }
 
     if (widget.existingTask != null) {
       appState.updateAdvancedTask(
@@ -89,24 +141,30 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
         title: _titleController.text.trim(),
         type: finalType,
         date: _selectedDate,
-        time: _selectedTime,
+        time: firstTime,
         iconCodePoint: _selectedIconCode,
         priority: _priority,
         note: _noteController.text.trim(),
-        repetition: _repetition,
+        repetition: repToSave,
         subType: _subType,
+        repeatDaysJson: daysJson,
+        taskTimesJson: timesJson,
+        reminderOffset: _reminderOffset,
       );
     } else {
       appState.addAdvancedTask(
         title: _titleController.text.trim(),
         type: finalType,
         date: _selectedDate,
-        time: _selectedTime,
+        time: firstTime,
         iconCodePoint: _selectedIconCode,
         priority: _priority,
         note: _noteController.text.trim(),
-        repetition: _repetition,
+        repetition: repToSave,
         subType: _subType,
+        repeatDaysJson: daysJson,
+        taskTimesJson: timesJson,
+        reminderOffset: _reminderOffset,
       );
     }
 
@@ -114,6 +172,7 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
   }
 
   void _pickTime() {
+    TimeOfDay tempTime = TimeOfDay.now();
     showCupertinoModalPopup(
       context: context,
       builder: (_) => Container(
@@ -125,15 +184,20 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
               height: 190,
               child: CupertinoDatePicker(
                 mode: CupertinoDatePickerMode.time,
-                initialDateTime: _selectedTime ?? DateTime.now(),
+                initialDateTime: DateTime.now(),
                 onDateTimeChanged: (val) {
-                  setState(() => _selectedTime = val);
+                  tempTime = TimeOfDay.fromDateTime(val);
                 },
               ),
             ),
             CupertinoButton(
-              child: const Text('Done'),
-              onPressed: () => Navigator.pop(context),
+              child: const Text('Add Time'),
+              onPressed: () {
+                setState(() {
+                  _selectedTimes.add(tempTime);
+                });
+                Navigator.pop(context);
+              },
             ),
           ],
         ),
@@ -165,6 +229,55 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
             ),
           ],
         ),
+      ),
+    );
+  }
+  
+  void _pickCustomDays() {
+    showCupertinoModalPopup(
+      context: context,
+      builder: (_) => StatefulBuilder(
+        builder: (context, setModalState) {
+          final days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+          return Container(
+            height: 350,
+            padding: const EdgeInsets.all(16),
+            color: Theme.of(context).scaffoldBackgroundColor,
+            child: Column(
+              children: [
+                const Text('Select Days', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                const SizedBox(height: 16),
+                Expanded(
+                  child: ListView.builder(
+                    itemCount: 7,
+                    itemBuilder: (context, index) {
+                      final dayNum = index + 1;
+                      final isSelected = _customDays.contains(dayNum);
+                      return CupertinoListTile(
+                        title: Text(days[index]),
+                        trailing: isSelected ? const Icon(CupertinoIcons.check_mark, color: CupertinoColors.activeBlue) : null,
+                        onTap: () {
+                          setModalState(() {
+                            if (isSelected) {
+                              _customDays.remove(dayNum);
+                            } else {
+                              _customDays.add(dayNum);
+                            }
+                          });
+                          setState((){});
+                        },
+                      );
+                    },
+                  ),
+                ),
+                CupertinoButton(
+                  child: const Text('Done'),
+                  onPressed: () => Navigator.pop(context),
+                ),
+              ],
+            ),
+          );
+        }
       ),
     );
   }
@@ -425,14 +538,53 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
                 const SizedBox(height: 24),
               ],
 
-              // Date & Time
+              // Repetition First (to hide Date if Daily)
+              const Text(
+                'Repetition',
+                style: TextStyle(fontWeight: FontWeight.w600, fontSize: 16),
+              ),
+              const SizedBox(height: 12),
+              SizedBox(
+                height: 40,
+                child: ListView(
+                  scrollDirection: Axis.horizontal,
+                  children: ['None', 'Daily', 'Nhar Ah Nhar La', 'Custom Days'].map((rep) {
+                    final isSelected = rep == _repetition;
+                    return Padding(
+                      padding: const EdgeInsets.only(right: 8.0),
+                      child: ChoiceChip(
+                        label: Text(rep),
+                        selected: isSelected,
+                        onSelected: (val) {
+                          setState(() => _repetition = rep);
+                          if (rep == 'Custom Days') {
+                            _pickCustomDays();
+                          }
+                        },
+                        selectedColor: Theme.of(
+                          context,
+                        ).colorScheme.primary.withValues(alpha: 0.2),
+                        backgroundColor: Theme.of(context).cardTheme.color,
+                        side: BorderSide.none,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                    );
+                  }).toList(),
+                ),
+              ),
+              const SizedBox(height: 24),
+
+              // Date & Times
               Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Expanded(
                     child: _buildSettingTile(
                       context,
                       icon: CupertinoIcons.calendar,
-                      title: 'Date',
+                      title: 'Start Date',
                       value:
                           '${_selectedDate.month}/${_selectedDate.day}/${_selectedDate.year}',
                       onTap: _pickDate,
@@ -440,17 +592,88 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
                   ),
                   const SizedBox(width: 12),
                   Expanded(
-                    child: _buildSettingTile(
-                      context,
-                      icon: CupertinoIcons.clock,
-                      title: 'Time',
-                      value: _selectedTime != null
-                          ? '${_selectedTime!.hour.toString().padLeft(2, '0')}:${_selectedTime!.minute.toString().padLeft(2, '0')}'
-                          : 'None',
-                      onTap: _pickTime,
-                    ),
+                    child: Container(
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: Theme.of(context).cardTheme.color,
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Row(
+                                children: [
+                                  Icon(
+                                    CupertinoIcons.clock,
+                                    size: 20,
+                                    color: Theme.of(context).colorScheme.primary,
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Text(
+                                    'Times',
+                                    style: TextStyle(
+                                      color: Theme.of(
+                                        context,
+                                      ).colorScheme.onSurface.withValues(alpha: 0.6),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              GestureDetector(
+                                onTap: _pickTime,
+                                child: Icon(CupertinoIcons.add_circled, color: Theme.of(context).colorScheme.primary)
+                              )
+                            ],
+                          ),
+                          const SizedBox(height: 12),
+                          if (_selectedTimes.isEmpty) 
+                            const Text('No times selected', style: TextStyle(fontSize: 14))
+                          else
+                            Wrap(
+                              spacing: 8,
+                              runSpacing: 8,
+                              children: _selectedTimes.map((t) {
+                                return Chip(
+                                  label: Text('${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}'),
+                                  onDeleted: () {
+                                    setState(() {
+                                      _selectedTimes.remove(t);
+                                    });
+                                  },
+                                );
+                              }).toList()
+                            )
+                        ],
+                      ),
+                    )
                   ),
                 ],
+              ),
+              const SizedBox(height: 24),
+
+              // Reminder Offset
+              const Text(
+                'Reminder',
+                style: TextStyle(fontWeight: FontWeight.w600, fontSize: 16),
+              ),
+              const SizedBox(height: 12),
+              SizedBox(
+                width: double.infinity,
+                child: CupertinoSlidingSegmentedControl<int>(
+                  groupValue: _reminderOffset,
+                  children: const {
+                    0: Padding(padding: EdgeInsets.symmetric(horizontal: 10), child: Text('0 min')),
+                    5: Padding(padding: EdgeInsets.symmetric(horizontal: 10), child: Text('5 min')),
+                    15: Padding(padding: EdgeInsets.symmetric(horizontal: 10), child: Text('15 min')),
+                    30: Padding(padding: EdgeInsets.symmetric(horizontal: 10), child: Text('30 min')),
+                  },
+                  onValueChanged: (val) {
+                    if (val != null) setState(() => _reminderOffset = val);
+                  },
+                ),
               ),
               const SizedBox(height: 24),
 
@@ -481,39 +704,6 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
                   onValueChanged: (val) {
                     if (val != null) setState(() => _priority = val);
                   },
-                ),
-              ),
-              const SizedBox(height: 24),
-
-              // Repetition
-              const Text(
-                'Repetition',
-                style: TextStyle(fontWeight: FontWeight.w600, fontSize: 16),
-              ),
-              const SizedBox(height: 12),
-              SizedBox(
-                height: 40,
-                child: ListView(
-                  scrollDirection: Axis.horizontal,
-                  children: ['None', 'Daily', 'Weekdays', 'Weekly'].map((rep) {
-                    final isSelected = rep == _repetition;
-                    return Padding(
-                      padding: const EdgeInsets.only(right: 8.0),
-                      child: ChoiceChip(
-                        label: Text(rep),
-                        selected: isSelected,
-                        onSelected: (val) => setState(() => _repetition = rep),
-                        selectedColor: Theme.of(
-                          context,
-                        ).colorScheme.primary.withValues(alpha: 0.2),
-                        backgroundColor: Theme.of(context).cardTheme.color,
-                        side: BorderSide.none,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                      ),
-                    );
-                  }).toList(),
                 ),
               ),
               const SizedBox(height: 24),

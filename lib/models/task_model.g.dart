@@ -30,13 +30,16 @@ class TaskModelAdapter extends TypeAdapter<TaskModel> {
       subType: fields[10] as String,
       status: fields[11] as String,
       sessionsJson: fields[12] as String,
+      repeatDaysJson: fields[13] as String?,
+      taskTimesJson: fields[14] as String?,
+      reminderOffset: fields[15] as int?,
     );
   }
 
   @override
   void write(BinaryWriter writer, TaskModel obj) {
     writer
-      ..writeByte(13)
+      ..writeByte(16)
       ..writeByte(0)
       ..write(obj.id)
       ..writeByte(1)
@@ -62,7 +65,13 @@ class TaskModelAdapter extends TypeAdapter<TaskModel> {
       ..writeByte(11)
       ..write(obj.status)
       ..writeByte(12)
-      ..write(obj.sessionsJson);
+      ..write(obj.sessionsJson)
+      ..writeByte(13)
+      ..write(obj.repeatDaysJson)
+      ..writeByte(14)
+      ..write(obj.taskTimesJson)
+      ..writeByte(15)
+      ..write(obj.reminderOffset);
   }
 
   @override
