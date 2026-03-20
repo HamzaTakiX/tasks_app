@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -32,7 +33,6 @@ class _CategoryTasksScreenState extends State<CategoryTasksScreen> {
     showCupertinoModalPopup(
       context: context,
       builder: (_) => DefaultTextStyle(
-        // Reset the underline decoration Cupertino adds inside popups
         style: Theme.of(
           context,
         ).textTheme.bodyMedium!.copyWith(decoration: TextDecoration.none),
@@ -83,7 +83,6 @@ class _CategoryTasksScreenState extends State<CategoryTasksScreen> {
                 ),
               ),
               const SizedBox(height: 16),
-              // Button styled with category color
               GestureDetector(
                 onTap: () {
                   final name = _newSubTypeController.text.trim();
@@ -124,19 +123,38 @@ class _CategoryTasksScreenState extends State<CategoryTasksScreen> {
     );
   }
 
+  Future<void> _reorderTasks(
+    AppState appState,
+    List<TaskModel> tasks,
+    int oldIndex,
+    int newIndex,
+  ) async {
+    if (oldIndex < newIndex) newIndex -= 1;
+    final moved = tasks.removeAt(oldIndex);
+    tasks.insert(newIndex, moved);
+    // Update sortOrder for all affected tasks
+    for (int i = 0; i < tasks.length; i++) {
+      tasks[i].sortOrder = i;
+      await tasks[i].save();
+    }
+    appState.refresh();
+  }
+
   @override
   Widget build(BuildContext context) {
     final appState = context.watch<AppState>();
     final catColor = Color(widget.category.colorValue);
 
-    // All tasks in this category
+    // All tasks in this category sorted by sortOrder then date
     final categoryTasks =
         appState.taskBox.values
             .where((t) => t.type == widget.category.title)
             .toList()
-          ..sort((a, b) => b.date.compareTo(a.date));
+          ..sort((a, b) {
+            final cmp = a.sortOrder.compareTo(b.sortOrder);
+            return cmp != 0 ? cmp : b.date.compareTo(a.date);
+          });
 
-    // Get distinct sub-types, put '' (General/no type) last
     final subTypes = categoryTasks.map((t) => t.subType).toSet().toList();
     subTypes.sort((a, b) => a.isEmpty ? 1 : (b.isEmpty ? -1 : a.compareTo(b)));
 
@@ -243,6 +261,13 @@ class _CategoryTasksScreenState extends State<CategoryTasksScreen> {
                               ),
                             ),
                             const Spacer(),
+                            // Drag hint
+                            Icon(
+                              CupertinoIcons.arrow_up_arrow_down,
+                              size: 14,
+                              color: catColor.withValues(alpha: 0.5),
+                            ),
+                            const SizedBox(width: 8),
                             // Quick add task to THIS sub-type
                             GestureDetector(
                               onTap: () {
@@ -274,47 +299,67 @@ class _CategoryTasksScreenState extends State<CategoryTasksScreen> {
                           delay: Duration(milliseconds: 40 * sectionIndex),
                         ),
                         const SizedBox(height: 12),
-                        // Tasks inside section
-                        ...tasksInSection.asMap().entries.map((entry) {
-                          final task = entry.value;
-                          return Padding(
-                            padding: const EdgeInsets.only(bottom: 10.0),
-                            child: Dismissible(
-                              key: Key(task.id),
-                              direction: DismissDirection.endToStart,
-                              background: Container(
-                                alignment: Alignment.centerRight,
-                                padding: const EdgeInsets.only(right: 24),
-                                decoration: BoxDecoration(
-                                  color: CupertinoColors.destructiveRed,
-                                  borderRadius: BorderRadius.circular(16),
-                                ),
-                                child: const Icon(
-                                  CupertinoIcons.delete,
-                                  color: Colors.white,
+
+                        // ── Reorderable task list ─────────────────────────────
+                        ReorderableListView.builder(
+                          shrinkWrap: true,
+                          physics: const NeverScrollableScrollPhysics(),
+                          itemCount: tasksInSection.length,
+                          onReorder: (oldIndex, newIndex) {
+                            _reorderTasks(
+                              appState,
+                              tasksInSection,
+                              oldIndex,
+                              newIndex,
+                            );
+                          },
+                          proxyDecorator: (child, index, animation) =>
+                              Material(
+                                color: Colors.transparent,
+                                child: ScaleTransition(
+                                  scale: animation.drive(
+                                    Tween(begin: 1.0, end: 1.03).chain(
+                                      CurveTween(curve: Curves.easeOut),
+                                    ),
+                                  ),
+                                  child: child,
                                 ),
                               ),
-                              onDismissed: (_) {
-                                appState.deleteTask(task);
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  const SnackBar(
-                                    content: Text('Task deleted'),
-                                    behavior: SnackBarBehavior.floating,
-                                    duration: Duration(seconds: 2),
+                          itemBuilder: (context, taskIndex) {
+                            final task = tasksInSection[taskIndex];
+                            return Padding(
+                              key: Key(task.id),
+                              padding: const EdgeInsets.only(bottom: 10.0),
+                              child: Dismissible(
+                                key: Key('dismiss_${task.id}'),
+                                direction: DismissDirection.endToStart,
+                                background: Container(
+                                  alignment: Alignment.centerRight,
+                                  padding: const EdgeInsets.only(right: 24),
+                                  decoration: BoxDecoration(
+                                    color: CupertinoColors.destructiveRed,
+                                    borderRadius: BorderRadius.circular(16),
                                   ),
-                                );
-                              },
-                              child: TaskCard(task: task)
-                                  .animate()
-                                  .fadeIn(
-                                    delay: Duration(
-                                      milliseconds: 30 * entry.key,
+                                  child: const Icon(
+                                    CupertinoIcons.delete,
+                                    color: Colors.white,
+                                  ),
+                                ),
+                                onDismissed: (_) {
+                                  appState.deleteTask(task);
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(
+                                      content: Text('Task deleted'),
+                                      behavior: SnackBarBehavior.floating,
+                                      duration: Duration(seconds: 2),
                                     ),
-                                  )
-                                  .slideX(begin: 0.05),
-                            ),
-                          );
-                        }),
+                                  );
+                                },
+                                child: TaskCard(task: task),
+                              ),
+                            );
+                          },
+                        ),
 
                         const Divider(height: 24),
                       ],

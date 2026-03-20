@@ -37,6 +37,9 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
   List<int> _customDays = []; // 1=Mon, ..., 7=Sun
   int? _selectedIconCode;
   String _subType = ''; // e.g. "Hair Care" inside "Health"
+  
+  // Checklist functionality
+  List<Map<String, dynamic>> _subTasks = [];
 
   // Dynamic categories loaded from Hive
   final List<int> _iconOptions = [
@@ -75,6 +78,13 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
         } catch (_) {}
       } else if (task.time != null) {
         _selectedTimes.add(TimeOfDay(hour: task.time!.hour, minute: task.time!.minute));
+      }
+
+      if (task.subTasksJson != null && task.subTasksJson!.isNotEmpty) {
+        try {
+          final List<dynamic> subTasksList = jsonDecode(task.subTasksJson!);
+          _subTasks = List<Map<String, dynamic>>.from(subTasksList);
+        } catch (_) {}
       }
 
       if (task.repeatDaysJson == 'every_other_day') {
@@ -135,6 +145,15 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
       );
     }
 
+    String? subTasksJson;
+    if (_subTasks.isNotEmpty) {
+      // Clean up empty tasks
+      final validTasks = _subTasks.where((t) => (t['title'] as String).trim().isNotEmpty).toList();
+      if (validTasks.isNotEmpty) {
+        subTasksJson = jsonEncode(validTasks);
+      }
+    }
+
     if (widget.existingTask != null) {
       appState.updateAdvancedTask(
         existingTask: widget.existingTask!,
@@ -150,6 +169,7 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
         repeatDaysJson: daysJson,
         taskTimesJson: timesJson,
         reminderOffset: _reminderOffset,
+        subTasksJson: subTasksJson,
       );
     } else {
       appState.addAdvancedTask(
@@ -165,6 +185,7 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
         repeatDaysJson: daysJson,
         taskTimesJson: timesJson,
         reminderOffset: _reminderOffset,
+        subTasksJson: subTasksJson,
       );
     }
 
@@ -280,6 +301,12 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
         }
       ),
     );
+  }
+
+  void _addSubTask() {
+    setState(() {
+      _subTasks.add({'title': '', 'done': false});
+    });
   }
 
   @override
@@ -778,6 +805,120 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
                   borderRadius: BorderRadius.circular(12),
                 ),
               ),
+              const SizedBox(height: 24),
+
+              // Checklist
+              Row(
+                children: [
+                  const Text(
+                    'Checklist (Sub-tasks)',
+                    style: TextStyle(fontWeight: FontWeight.w600, fontSize: 16),
+                  ),
+                  const Spacer(),
+                  CupertinoButton(
+                    padding: EdgeInsets.zero,
+                    minimumSize: Size.zero,
+                    onPressed: _addSubTask,
+                    child: Row(
+                      children: const [
+                        Icon(CupertinoIcons.add_circled, size: 20),
+                        SizedBox(width: 4),
+                        Text('Add Item', style: TextStyle(fontSize: 14)),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              if (_subTasks.isEmpty)
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: Theme.of(context).cardTheme.color,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Center(
+                    child: Text(
+                      'No sub-tasks added.',
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.5),
+                        fontSize: 14,
+                      ),
+                    ),
+                  ),
+                )
+              else
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: Theme.of(context).cardTheme.color,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Column(
+                    children: _subTasks.asMap().entries.map((entry) {
+                      final idx = entry.key;
+                      final st = entry.value;
+                      return Padding(
+                        padding: const EdgeInsets.only(bottom: 8.0, top: 4.0),
+                        child: Row(
+                          children: [
+                            GestureDetector(
+                              onTap: () {
+                                setState(() {
+                                  _subTasks[idx]['done'] = !(_subTasks[idx]['done'] as bool);
+                                });
+                              },
+                              child: Container(
+                                width: 22,
+                                height: 22,
+                                decoration: BoxDecoration(
+                                  border: Border.all(
+                                    color: (st['done'] as bool)
+                                        ? Theme.of(context).colorScheme.primary
+                                        : Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.3),
+                                    width: 1.5,
+                                  ),
+                                  shape: BoxShape.circle,
+                                  color: (st['done'] as bool)
+                                      ? Theme.of(context).colorScheme.primary
+                                      : Colors.transparent,
+                                ),
+                                child: (st['done'] as bool)
+                                    ? const Icon(CupertinoIcons.check_mark, size: 14, color: Colors.white)
+                                    : null,
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: CupertinoTextField(
+                                controller: TextEditingController(text: st['title'] as String)
+                                  ..selection = TextSelection.fromPosition(TextPosition(offset: (st['title'] as String).length)),
+                                placeholder: 'Item title',
+                                decoration: const BoxDecoration(), // remove default border
+                                style: TextStyle(
+                                  decoration: (st['done'] as bool) ? TextDecoration.lineThrough : null,
+                                  color: (st['done'] as bool) ? Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.5) : Theme.of(context).colorScheme.onSurface,
+                                ),
+                                onChanged: (val) {
+                                  _subTasks[idx]['title'] = val;
+                                },
+                              ),
+                            ),
+                            CupertinoButton(
+                              padding: EdgeInsets.zero,
+                              onPressed: () {
+                                setState(() {
+                                  _subTasks.removeAt(idx);
+                                });
+                              },
+                              child: const Icon(CupertinoIcons.clear_circled, size: 18, color: CupertinoColors.systemRed),
+                            ),
+                          ],
+                        ),
+                      );
+                    }).toList(),
+                  ),
+                ),
               const SizedBox(height: 40),
             ],
           ),

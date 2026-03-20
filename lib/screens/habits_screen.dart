@@ -142,14 +142,36 @@ class _HabitsScreenState extends State<HabitsScreen>
   }
 
   void _checkIn(BuildContext context, AppState appState, HabitModel h) {
-    if (h.isCompletedToday) return;
-    final now = DateTime.now();
-    h.lastCompletedDate = now;
-    h.streakCount += 1;
-    h.completedDates.add(now);
-    if (h.streakCount > h.bestStreak) h.bestStreak = h.streakCount;
-    h.save();
-    appState.refresh();
+    if (h.isCompletedToday) {
+      // ── UNDO: remove today's check-in ───────────────────────────────────
+      final today = DateTime.now();
+      h.completedDates.removeWhere(
+        (d) =>
+            d.year == today.year &&
+            d.month == today.month &&
+            d.day == today.day,
+      );
+      if (h.streakCount > 0) h.streakCount -= 1;
+      // Find the last completed date after removal
+      if (h.completedDates.isEmpty) {
+        h.lastCompletedDate = null;
+      } else {
+        h.lastCompletedDate = h.completedDates.reduce(
+          (a, b) => a.isAfter(b) ? a : b,
+        );
+      }
+      h.save();
+      appState.refresh();
+    } else {
+      // ── CHECK IN ────────────────────────────────────────────────────────
+      final now = DateTime.now();
+      h.lastCompletedDate = now;
+      h.streakCount += 1;
+      h.completedDates.add(now);
+      if (h.streakCount > h.bestStreak) h.bestStreak = h.streakCount;
+      h.save();
+      appState.refresh();
+    }
   }
 
   void _delete(AppState appState, HabitModel h) {
@@ -513,7 +535,7 @@ class _HabitTodayCard extends StatelessWidget {
                 ),
                 // Check-in button
                 GestureDetector(
-                  onTap: done ? null : onCheckIn,
+                  onTap: onCheckIn,
                   child: AnimatedContainer(
                     duration: const Duration(milliseconds: 250),
                     width: 44,

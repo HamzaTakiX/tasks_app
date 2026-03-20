@@ -60,6 +60,14 @@ class TaskModel extends HiveObject {
   @HiveField(15)
   int? reminderOffset;
 
+  /// JSON array of sub-task objects: [{"title":"...","done":false}, ...]
+  @HiveField(16)
+  String? subTasksJson;
+
+  /// Display order within its category/sub-type group (for drag-to-reorder)
+  @HiveField(17)
+  int sortOrder;
+
   TaskModel({
     required this.id,
     required this.title,
@@ -77,5 +85,7 @@ class TaskModel extends HiveObject {
     this.repeatDaysJson,
     this.taskTimesJson,
     this.reminderOffset = 5,
+    this.subTasksJson,
+    this.sortOrder = 0,
   });
 }

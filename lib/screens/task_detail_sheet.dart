@@ -273,6 +273,107 @@ class _TaskDetailSheet extends StatelessWidget {
               ),
             ],
 
+            // ── Checklist ─────────────────────────────────────────────
+            if (task.subTasksJson != null && task.subTasksJson!.isNotEmpty) ...[
+              const SizedBox(height: 20),
+              const Text(
+                'Checklist',
+                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+              ),
+              const SizedBox(height: 8),
+              Builder(
+                builder: (context) {
+                  List<dynamic> subTasks = [];
+                  try {
+                    subTasks = jsonDecode(task.subTasksJson!);
+                  } catch (_) {}
+
+                  if (subTasks.isEmpty) return const SizedBox.shrink();
+
+                  return Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: isDark
+                          ? const Color(0xFF2C2C2E)
+                          : const Color(0xFFF5F5F7),
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    child: Column(
+                      children: subTasks.asMap().entries.map((entry) {
+                        final idx = entry.key;
+                        final st = entry.value as Map<String, dynamic>;
+                        final isDone = st['done'] == true;
+                        
+                        return Padding(
+                          padding: const EdgeInsets.only(bottom: 8.0, top: 4.0),
+                          child: GestureDetector(
+                            onTap: () {
+                              final updatedList = List<Map<String, dynamic>>.from(subTasks);
+                              updatedList[idx]['done'] = !isDone;
+                              
+                              appState.updateAdvancedTask(
+                                existingTask: task,
+                                title: task.title,
+                                note: task.note,
+                                type: task.type,
+                                date: task.date,
+                                iconCodePoint: task.iconCodePoint,
+                                priority: task.priority,
+                                subType: task.subType,
+                                time: task.time,
+                                repetition: task.repetition,
+                                repeatDaysJson: task.repeatDaysJson,
+                                taskTimesJson: task.taskTimesJson,
+                                reminderOffset: task.reminderOffset,
+                                subTasksJson: jsonEncode(updatedList),
+                              );
+                            },
+                            child: Row(
+                              children: [
+                                Container(
+                                  width: 20,
+                                  height: 20,
+                                  decoration: BoxDecoration(
+                                    border: Border.all(
+                                      color: isDone
+                                          ? Theme.of(context).colorScheme.primary
+                                          : Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.3),
+                                      width: 1.5,
+                                    ),
+                                    shape: BoxShape.circle,
+                                    color: isDone
+                                        ? Theme.of(context).colorScheme.primary
+                                        : Colors.transparent,
+                                  ),
+                                  child: isDone
+                                      ? const Icon(CupertinoIcons.check_mark, size: 12, color: Colors.white)
+                                      : null,
+                                ),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: Text(
+                                    st['title'] as String,
+                                    style: TextStyle(
+                                      fontSize: 14,
+                                      decoration: isDone ? TextDecoration.lineThrough : null,
+                                      color: isDone 
+                                          ? Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.5) 
+                                          : Theme.of(context).colorScheme.onSurface,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        );
+                      }).toList(),
+                    ),
+                  );
+                }
+              ),
+            ],
+
             // ── Work sessions timeline ────────────────────────────────
             if (sessions.isNotEmpty) ...[
               const SizedBox(height: 20),

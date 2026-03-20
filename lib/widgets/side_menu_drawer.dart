@@ -8,6 +8,7 @@ import '../screens/timer_screen.dart';
 import '../screens/task_management_screen.dart';
 import '../screens/history_screen.dart';
 import '../screens/calendar_screen.dart';
+import '../screens/training_screen.dart';
 
 class SideMenuDrawer extends StatelessWidget {
   const SideMenuDrawer({super.key});
@@ -136,6 +137,18 @@ class SideMenuDrawer extends StatelessWidget {
                 Navigator.push(
                   context,
                   CupertinoPageRoute(builder: (_) => const JournalScreen()),
+                );
+              },
+            ),
+            _buildDrawerItem(
+              context,
+              icon: CupertinoIcons.sportscourt_fill,
+              title: 'Training',
+              onTap: () {
+                Navigator.pop(context);
+                Navigator.push(
+                  context,
+                  CupertinoPageRoute(builder: (_) => const TrainingScreen()),
                 );
               },
             ),

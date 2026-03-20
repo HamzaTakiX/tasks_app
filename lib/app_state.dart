@@ -241,7 +241,16 @@ class AppState extends ChangeNotifier {
     String? repeatDaysJson,
     String? taskTimesJson,
     int? reminderOffset,
+    String? subTasksJson,
   }) async {
+    // Determine sort order: one more than the current max in this category/subType
+    final existingInGroup = taskBox.values
+        .where((t) => t.type == type && t.subType == subType)
+        .toList();
+    final maxOrder = existingInGroup.isEmpty
+        ? -1
+        : existingInGroup.map((t) => t.sortOrder).reduce((a, b) => a > b ? a : b);
+
     final newTask = TaskModel(
       id: DateTime.now().millisecondsSinceEpoch.toString(),
       title: title,
@@ -256,6 +265,8 @@ class AppState extends ChangeNotifier {
       repeatDaysJson: repeatDaysJson,
       taskTimesJson: taskTimesJson,
       reminderOffset: reminderOffset,
+      subTasksJson: subTasksJson,
+      sortOrder: maxOrder + 1,
     );
     await taskBox.put(newTask.id, newTask);
     await _scheduleNotification(newTask);
@@ -276,6 +287,7 @@ class AppState extends ChangeNotifier {
     String? repeatDaysJson,
     String? taskTimesJson,
     int? reminderOffset,
+    String? subTasksJson,
   }) async {
     existingTask.title = title;
     existingTask.type = type;
@@ -289,6 +301,7 @@ class AppState extends ChangeNotifier {
     existingTask.repeatDaysJson = repeatDaysJson;
     existingTask.taskTimesJson = taskTimesJson;
     existingTask.reminderOffset = reminderOffset;
+    existingTask.subTasksJson = subTasksJson;
 
     await existingTask.save();
     await _scheduleNotification(existingTask);
